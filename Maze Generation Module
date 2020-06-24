@@ -1,0 +1,110 @@
+-----------------------------------------------------------------------------------
+-- Initialising Variables
+-----------------------------------------------------------------------------------
+math.randomseed(tick())
+local gridHeight, gridWidth = 29 , 29 -- Both must be odd; Map Size=(gridWidth-1)x(gridHeight-1)
+local blockSize = 10
+local wallHeight = 5
+local wallArray = {}
+
+local mapFolder = game.Workspace.LoadedMap
+local utilities = require(game:GetService("ReplicatedStorage").ModuleScripts.Shared.Utilities)
+local maths = require(game:GetService("ReplicatedStorage").ModuleScripts.Shared.Mathematics)
+local geometry = require(game:GetService("ReplicatedStorage").ModuleScripts.Shared.Geometry)
+-----------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------
+local mazeGeneration = {}
+-- Creates Baseplate of maze with required dimensions
+mazeGeneration.createBase = function()
+	local partDetails = {
+		Name = "Base",
+		Parent = mapFolder,
+		Size = Vector3.new(gridHeight*blockSize,1,gridWidth*blockSize),
+		Position = Vector3.new(0,-100,0),
+		Anchored = true
+	}
+	return geometry.instanceNewPart(partDetails)
+end
+
+-- Creates a wall of the maze, with a 'visited' boolean value as a child (used for path generation)
+mazeGeneration.createWall = function(base,i,j)
+	local partDetails = {
+		Name = maths.coords2D(i,j),
+		Parent = mapFolder,
+		Size = Vector3.new(blockSize,wallHeight,blockSize),
+		Position = geometry.partCornerPosition(base,-1,1,1),
+		Anchored = true
+	}
+	local wall = geometry.instanceNewPart(partDetails)
+	wall.Position = wall.Position + Vector3.new(i*blockSize-(wall.Size.X)/2,(wall.Size.Y)/2,(wall.Size.Z)/2-j*blockSize)
+	local visited = Instance.new("BoolValue",wall)
+	visited.Name = "Visited"
+	return wall
+end
+
+-- Adds a Room to the path in maze generations, marks it as visited and adds its adjacent walls to the Wall Array
+mazeGeneration.addToPath = function(coords)
+	local wall = mapFolder[coords]
+	wall.Visited.Value = true
+	maths.adjacentCoordsToArray(wallArray,maths.coords2DInverse(coords))
+end
+
+-- Creates a Grid of walls on the map baseplate, and sets the 'rooms' to white
+mazeGeneration.createGrid = function()
+	local base = mazeGeneration.createBase()
+	for i = 1, gridHeight do
+		for j = 1, gridWidth do
+			local wall = mazeGeneration.createWall(base,i,j)
+			if i % 2 == 0 and j % 2 == 0 then
+				wall.Color = Color3.fromRGB(1,1,1)
+			end							
+		end
+	end
+end
+
+-- Creates a perfect maze
+mazeGeneration.algorithm = function()
+	while utilities.isArrayEmpty(wallArray) == false do
+	local index = math.random(1,#wallArray)
+	local wall = wallArray[index]
+	local i, j = maths.coords2DInverse(wall)
+	local room1, room2
+	if i % 2 ~= 0 then
+		if i ~= 1 and i ~= gridHeight then  -- Ignore these cases, can't extend path from them	
+			room1 = mapFolder[maths.coords2D(i-1,j)] -- Room Above
+			room2 = mapFolder[maths.coords2D(i+1,j)] -- Room Below
+		end
+	else
+		if j ~= 1 and j ~= gridWidth then
+			room1 = mapFolder[maths.coords2D(i,j-1)] -- Room Left
+			room2 = mapFolder[maths.coords2D(i,j+1)] -- Room Right
+		end			
+	end	
+	if room1 ~= nil and room2 ~= nil then
+		if room1.Visited.Value == false then
+			mapFolder[wall].Color = Color3.fromRGB(1,1,1)
+			mazeGeneration.addToPath(room1.Name)
+		elseif room2.Visited.Value == false then
+			mapFolder[wall].Color = Color3.fromRGB(1,1,1)
+			mazeGeneration.addToPath(room2.Name)
+		end
+	end
+	table.remove(wallArray,index)
+	end	
+	for i = 1, gridHeight do
+		for j = 1, gridWidth do
+			local wall = mapFolder[maths.coords2D(i,j)]
+			if wall.Color == Color3.fromRGB(1,1,1) then
+				wall:Destroy()
+			end							
+		end
+	end
+end
+
+mazeGeneration.createMaze = function()
+	mazeGeneration.createGrid()
+	mazeGeneration.addToPath("(04,04)")
+	mazeGeneration.algorithm()  --Unload map
+end
+
+return mazeGeneration
