@@ -108,3 +108,7 @@ mazeGeneration.createMaze = function()
 end
 
 return mazeGeneration 
+
+
+
+--This module can be called using mazeGeneration.createMaze from another script 
