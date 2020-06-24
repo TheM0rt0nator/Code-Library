@@ -1,0 +1,85 @@
+-----------------------------------------------------------------------------------
+-- Initialising Variables
+-----------------------------------------------------------------------------------
+math.randomseed(tick())
+local utilities = require(game:GetService("ReplicatedStorage").ModuleScripts.Shared.Utilities)
+-----------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------
+local maths = {}
+
+-- Indicator function, tests equality of 'number' and 'indicator', returns 1 if equal, else returns 0
+maths.indicator = function(number, indicator)
+	if number == indicator then
+		return(1)
+	else
+		return(0)
+	end
+end
+
+-- Adds a leading zero to integer 'number' if it is between 0 and 9 (inclusive boundaries) 
+maths.leadingZero = function(number)
+	number = tonumber(number)
+	if 0 <= number and number <= 9 then
+		return tostring(0 .. number)
+	else
+		return number
+	end
+end
+
+-- Returns 2D Coordinates as a string in the form (x,y) with leading zeros 
+maths.coords2D = function(x,y)
+	return tostring("("..maths.leadingZero(x)..","..maths.leadingZero(y)..")")
+end
+-- Returns in an array the x,y values of the coordinates of form (xx,yy) with leading Zeros
+maths.coords2DInverse = function(coords)
+	local x = tonumber(string.sub(coords,2,3))
+	local y = tonumber(string.sub(coords,5,6))
+	return x, y
+end
+
+-- Adds adjacent coordinates of (i,j) to array if they aren't already in array
+maths.adjacentCoordsToArray = function(array,i,j)
+	utilities.arrayInsertUnique(array,maths.coords2D(i-1,j))
+	utilities.arrayInsertUnique(array,maths.coords2D(i+1,j))
+	utilities.arrayInsertUnique(array,maths.coords2D(i,j-1))
+	utilities.arrayInsertUnique(array,maths.coords2D(i,j+1))
+end
+
+-- Takes as input a Probability table, and returns as output a randomly selected table entry based on the probability of all entries
+-- Option to return index of table entry by setting returnIndex = true (Used to make selecting N easier)
+maths.probabilitySelect = function(probTable, returnIndex)
+	local cumulativeProb = 0
+	local cumulativeTable = probTable
+	for i,v in pairs(cumulativeTable) do
+		cumulativeProb = cumulativeProb + v[2]
+		table.insert(v,cumulativeProb)
+	end
+	local selectedProb = math.random()*cumulativeProb
+	local selectedEntry, selectedIndex
+	for i,v in pairs(cumulativeTable) do
+		if selectedProb < v[3] then
+			selectedEntry = v[1]
+			selectedIndex = i
+		else 
+			break
+		end
+	end
+	if returnIndex == true then
+		return selectedEntry, selectedIndex
+	else 
+		return selectedEntry
+	end
+end
+
+-- Takes as input a Probability Table and n, returns as output an array of n unique randomly selected table entries based on probability of all entries
+maths.probabilitySelectN = function(probTable, n)
+	local returns = {}
+	local index
+	for i = 1, n do
+		returns[i] , index = maths.probabilitySelect(probTable, true)
+		table.remove(probTable, index)
+	end
+	return returns
+end
+
+return maths
