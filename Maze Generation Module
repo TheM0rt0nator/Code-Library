@@ -107,4 +107,4 @@ mazeGeneration.createMaze = function()
 	mazeGeneration.algorithm()  --Unload map
 end
 
-return mazeGeneration
+return mazeGeneration 
