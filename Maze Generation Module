@@ -65,31 +65,31 @@ end
 -- Creates a perfect maze
 mazeGeneration.algorithm = function()
 	while utilities.isArrayEmpty(wallArray) == false do
-	local index = math.random(1,#wallArray)
-	local wall = wallArray[index]
-	local i, j = maths.coords2DInverse(wall)
-	local room1, room2
-	if i % 2 ~= 0 then
-		if i ~= 1 and i ~= gridHeight then  -- Ignore these cases, can't extend path from them	
-			room1 = mapFolder[maths.coords2D(i-1,j)] -- Room Above
-			room2 = mapFolder[maths.coords2D(i+1,j)] -- Room Below
+		local index = math.random(1,#wallArray)
+		local wall = wallArray[index]
+		local i, j = maths.coords2DInverse(wall)
+		local room1, room2
+		if i % 2 ~= 0 then
+			if i ~= 1 and i ~= gridHeight then  -- Ignore these cases, can't extend path from them	
+				room1 = mapFolder[maths.coords2D(i-1,j)] -- Room Above
+				room2 = mapFolder[maths.coords2D(i+1,j)] -- Room Below
+			end
+		else
+			if j ~= 1 and j ~= gridWidth then
+				room1 = mapFolder[maths.coords2D(i,j-1)] -- Room Left
+				room2 = mapFolder[maths.coords2D(i,j+1)] -- Room Right
+			end			
+		end	
+		if room1 ~= nil and room2 ~= nil then
+			if room1.Visited.Value == false then
+				mapFolder[wall].Color = Color3.fromRGB(1,1,1)
+				mazeGeneration.addToPath(room1.Name)
+			elseif room2.Visited.Value == false then
+				mapFolder[wall].Color = Color3.fromRGB(1,1,1)
+				mazeGeneration.addToPath(room2.Name)
+			end
 		end
-	else
-		if j ~= 1 and j ~= gridWidth then
-			room1 = mapFolder[maths.coords2D(i,j-1)] -- Room Left
-			room2 = mapFolder[maths.coords2D(i,j+1)] -- Room Right
-		end			
-	end	
-	if room1 ~= nil and room2 ~= nil then
-		if room1.Visited.Value == false then
-			mapFolder[wall].Color = Color3.fromRGB(1,1,1)
-			mazeGeneration.addToPath(room1.Name)
-		elseif room2.Visited.Value == false then
-			mapFolder[wall].Color = Color3.fromRGB(1,1,1)
-			mazeGeneration.addToPath(room2.Name)
-		end
-	end
-	table.remove(wallArray,index)
+		table.remove(wallArray,index)
 	end	
 	for i = 1, gridHeight do
 		for j = 1, gridWidth do
