@@ -1,6 +1,7 @@
 --To change between manual and automatic modes, press 'T'
 --To generate auto polygon, press 'B' (needs to be >= 3 nodes in the AUTO_GEN_FOLDER to create a polygon)
---To make polygons in manual mode, hover the mouse over a part named BASE_NAME to preview the node, and click to place the node (polygons will be formed after >= 3 nodes have been placed)
+--To make polygons in manual mode, hover the mouse over a part named BASE_NAME to preview the node, and click to place the node (polygons will be formed after >= 3 nodes have 
+--been placed)
 --Right click to get rid of all the manual nodes leaving you with just a polygon
 --Auto nodes must be named from 1 to however many nodes there are
 --This uses the ear clipping method
@@ -238,7 +239,8 @@ local function onInputBegan(input, gameProcessed)
 
 			local crossProduct = vector1:Cross(vector2)
 			print(crossProduct.Y)
-			--Checks to see if the 3 nodes create an ear to the polygon or not (triangle which has two of its sides as sides of the polygon and one completely on the inside of the polygon)
+			--Checks to see if the 3 nodes create an ear to the polygon or not (triangle which has two of its sides as sides of the polygon and one completely 
+			--on the inside of the polygon)
 			if crossProduct.Y > 0 then
 				local Data = {Color,Material,Thickness}
 				local triangle = drawTriangle(nodeBefore.Position, node.Position, nodeAfter.Position, 1, Data)
