@@ -1,0 +1,269 @@
+--To change between manual and automatic modes, press 'T'
+--To generate auto polygon, press 'B' (needs to be >= 3 nodes in the AUTO_GEN_FOLDER to create a polygon)
+--To make polygons in manual mode, hover the mouse over a part named BASE_NAME to preview the node, and click to place the node (polygons will be formed after >= 3 nodes have been placed)
+--Right click to get rid of all the manual nodes leaving you with just a polygon
+
+
+local player = game.Players.LocalPlayer
+local userInputService = game:GetService("UserInputService")
+local Mouse = player:GetMouse()
+
+local mode = "Manual"
+
+local TARGET_FILTER_FOLDER = Instance.new("Folder")
+TARGET_FILTER_FOLDER.Name = "TargetFilter"
+TARGET_FILTER_FOLDER.Parent = game.Workspace
+
+local MANUAL_NODES_FOLDER = Instance.new("Folder")
+MANUAL_NODES_FOLDER.Name = "Nodes"
+MANUAL_NODES_FOLDER.Parent = TARGET_FILTER_FOLDER
+
+local AUTO_GEN_FOLDER = game.Workspace.AutoNodes
+local BASE_NAME = "Baseplate"
+
+local base = game.Workspace:FindFirstChild(BASE_NAME)
+local origin = Vector3.new(base.Position.X - base.Size.X/2, (base.Position.Y + base.Position.Y/2) + 1, base.Position.Z - base.Position.Z/2)
+
+--Polygon Characteristics
+local Color = BrickColor.new("Medium stone grey")
+local Material = Enum.Material.SmoothPlastic
+local Thickness = .1
+
+local preNode = Instance.new("Part")
+preNode.Size = Vector3.new(1,1,1)
+preNode.Name = "PreNode"
+preNode.Anchored = true
+preNode.Transparency = 0.5
+preNode.FrontSurface = Enum.SurfaceType.SmoothNoOutlines
+preNode.BackSurface = Enum.SurfaceType.SmoothNoOutlines
+preNode.LeftSurface = Enum.SurfaceType.SmoothNoOutlines
+preNode.RightSurface = Enum.SurfaceType.SmoothNoOutlines
+preNode.TopSurface = Enum.SurfaceType.SmoothNoOutlines
+preNode.BottomSurface = Enum.SurfaceType.SmoothNoOutlines
+local mA = Instance.new("SpecialMesh", preNode)
+mA.MeshType = Enum.MeshType.Sphere
+mA.Scale = Vector3.new(.5, .5, .5)
+Mouse.TargetFilter = TARGET_FILTER_FOLDER
+
+local dupe = false
+local vals = {}
+
+function spawnTrianglePart(col,mat)
+	local P = Instance.new("WedgePart")
+	P.Anchored = true
+	if mode == "Manual" then
+		P.Parent = TARGET_FILTER_FOLDER
+	end
+	P.BrickColor = col
+	P.Material = mat
+	P.FrontSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.BackSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.LeftSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.RightSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.TopSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.BottomSurface = Enum.SurfaceType.SmoothNoOutlines
+	return P
+end	
+
+function drawTriangle(a, b, c, n, ad)
+	local len_ab = (a-b).Magnitude
+	local len_bc = (b-c).Magnitude
+	local len_ca = (c-a).Magnitude
+
+	if len_ab > len_bc and len_ab > len_ca then
+		a,c = c,a
+		b,c = c,b
+	elseif len_bc > len_ab and len_bc > len_ca then
+		b,c = c,b
+		c,a = a,c
+	elseif len_ca > len_ab and len_ca > len_bc then
+		a,b = b,a
+		b,c = c,b
+	end
+
+	local dot = (a - b):Dot(c - b)
+	local split = b + (c-b).unit*dot/(c - b).magnitude
+
+	local xA = ad[3]
+	local yA = (split - a).magnitude
+	local zA = (split - b).magnitude
+
+	local xB = ad[3]
+	local yB = (split - a).magnitude
+	local zB = (split - c).magnitude
+
+	local diry = (a - split).unit
+	local dirz = (c - split).unit
+	local dirx = diry:Cross(dirz).unit
+
+	local posA = split + diry*yA/2 - dirz*zA/2
+	local posB = split + diry*yB/2 + dirz*zB/2
+
+	local partA = spawnTrianglePart(ad[1],ad[2])
+	partA.Name = "TrianglePart"
+	partA.Size = Vector3.new(xA,math.min(yA,2048),math.min(zA,2048))
+  
+	local mA = Instance.new("SpecialMesh",partA)
+	mA.MeshType = Enum.MeshType.Wedge
+	mA.Scale = Vector3.new(xA,yA,zA)/partA.Size
+	mA.Offset = Vector3.new(-n*(partA.Size.x-xA)/2,0,0)
+	if mA.Scale == Vector3.new(1,1,1) then 
+    mA:Destroy() 
+  end
+  
+	partA.CFrame = CFrame.new(posA.x,1,posA.z, dirx.x,diry.x,dirz.x, dirx.y,diry.y,dirz.y, dirx.z,diry.z,dirz.z)
+	partA.CFrame = partA.CFrame:toWorldSpace(CFrame.new(n*math.max(.2,xA)/2,0,0))
+	dirx = dirx * -1
+	dirz = dirz * -1
+	if partA.Position.Y ~= 1 then
+		partA.Position = Vector3.new(partA.Position.X, 1, partA.Position.Z)
+	end
+
+	local partB = spawnTrianglePart(ad[1],ad[2])
+	partB.Name = "TrianglePart"
+	partB.Size = Vector3.new(xB,yB,zB)
+  
+	local mB = Instance.new("SpecialMesh",partB)
+	mB.MeshType = Enum.MeshType.Wedge
+	mB.Scale = Vector3.new(xB,math.min(yB,2048),math.min(zB,2048))/partB.Size
+	mB.Offset = Vector3.new(n*(partB.Size.x-xB)/2,0,0)
+	if mB.Scale == Vector3.new(1,1,1) then 
+    mB:Destroy() 
+  end
+  
+	partB.CFrame = CFrame.new(posB.x,1,posB.z, dirx.x,diry.x,dirz.x, dirx.y,diry.y,dirz.y, dirx.z,diry.z,dirz.z)
+	partB.CFrame = partB.CFrame:toWorldSpace(CFrame.new(-n*math.max(.2,xB)/2,0,0))
+	if partB.Position.Y ~= 1 then
+		partB.Position = Vector3.new(partB.Position.X, 1, partB.Position.Z)
+	end
+	
+	return {partA,partB}
+end
+
+Mouse.Button1Up:connect(function()
+	if dupe ~= "Finish" and Mouse.Target and mode == "Manual" then
+		dupe = false
+		for i,v in pairs(MANUAL_NODES_FOLDER:GetChildren()) do
+			if v.Position == preNode.Position then
+				dupe = true
+			end
+		end
+		
+		if dupe == false then
+			local newNode = preNode:Clone()
+			local numNodes = #MANUAL_NODES_FOLDER:GetChildren()
+			newNode.Name = numNodes+1
+			newNode.Transparency = 0
+			newNode.Parent = MANUAL_NODES_FOLDER
+			
+			numNodes = #MANUAL_NODES_FOLDER:GetChildren()
+			if numNodes >= 3 then
+				vals = {}
+				for i,v in pairs(MANUAL_NODES_FOLDER:GetChildren())do
+					if i == 1 then
+						table.insert(vals, Vector3.new(v.Position.X, v.Position.Y, v.Position.Z))
+					elseif i >= numNodes - 1 then
+						table.insert(vals, Vector3.new(v.Position.X, v.Position.Y, v.Position.Z))
+					end
+				end
+				
+				local Data = {Color,Material,Thickness}
+				drawTriangle(vals[1], vals[2], vals[3], 1, Data)
+			end
+		end
+	end
+end)
+
+Mouse.Button2Up:connect(function()
+	if #MANUAL_NODES_FOLDER:GetChildren() >= 3 and mode == "Manual" then
+		dupe = "finish"
+		preNode:Destroy()
+		MANUAL_NODES_FOLDER:ClearAllChildren()
+	end
+end)
+
+local function onInputBegan(input, gameProcessed)
+	if input.KeyCode == Enum.KeyCode.T then
+		if mode == "Manual" then
+			mode = "Automatic"
+			preNode.Parent = game:GetService("ReplicatedStorage")
+		else
+			mode = "Manual"
+		end
+	elseif input.KeyCode == Enum.KeyCode.B and mode == "Automatic" and #AUTO_GEN_FOLDER:GetChildren() >= 3 then
+		local i = 1
+		local polygon = {}
+		
+		while #AUTO_GEN_FOLDER:GetChildren() >= 3 do
+			local nodeBefore 
+			local node 
+			local nodeAfter
+			if i == 1 then
+				nodeBefore = AUTO_GEN_FOLDER:FindFirstChild(tostring(#AUTO_GEN_FOLDER:GetChildren()))
+				node = AUTO_GEN_FOLDER:FindFirstChild(tostring(i))
+				nodeAfter = AUTO_GEN_FOLDER:FindFirstChild(tostring(i+1))
+			elseif i == #AUTO_GEN_FOLDER:GetChildren() then
+				nodeBefore = AUTO_GEN_FOLDER:FindFirstChild(tostring(i-1))
+				node = AUTO_GEN_FOLDER:FindFirstChild(tostring(i))
+				nodeAfter = AUTO_GEN_FOLDER:FindFirstChild(tostring(1))
+			else
+				nodeBefore = AUTO_GEN_FOLDER:FindFirstChild(tostring(i-1))
+				node = AUTO_GEN_FOLDER:FindFirstChild(tostring(i))
+				nodeAfter = AUTO_GEN_FOLDER:FindFirstChild(tostring(i+1))
+			end
+			
+			local vector2 = nodeBefore.Position - node.Position
+			local vector1 = nodeAfter.Position - node.Position
+			
+			local testVector1 = node.Position - nodeBefore.Position
+			local testVector2 = node.Position - nodeAfter.Position
+
+			local angle = math.deg(math.acos(vector1:Dot(vector2)/(vector1.Magnitude*vector2.Magnitude)))
+			local testAngle = math.deg(math.acos(testVector1:Dot(testVector2)/(testVector1.Magnitude*testVector2.Magnitude)))
+
+			local crossProduct = vector1:Cross(vector2)
+			if crossProduct.Y > 0 then
+				local Data = {Color,Material,Thickness}
+				local triangle = drawTriangle(nodeBefore.Position, node.Position, nodeAfter.Position, 1, Data)
+				table.insert(polygon, triangle)
+				
+				node.Name = "Done"
+				node.Parent = game.Workspace
+				for index = i+1, #AUTO_GEN_FOLDER:GetChildren()+1, 1 do
+					AUTO_GEN_FOLDER:FindFirstChild(tostring(index)).Name = tostring(index-1)
+				end
+				
+				if i<#AUTO_GEN_FOLDER:GetChildren() then
+					i = i+1
+				else
+					i = 1
+				end
+			elseif crossProduct.Y < 0 then
+				i = i+1
+			end
+			
+			wait()
+		end
+		
+		for i,v in pairs(polygon)do
+			v[1].Parent = TARGET_FILTER_FOLDER
+			v[2].Parent = TARGET_FILTER_FOLDER
+		end
+	end
+end
+ 
+userInputService.InputBegan:Connect(onInputBegan)
+
+while dupe ~= "finish" do
+	if Mouse.Target and Mouse.Target.Name == BASE_NAME and mode == "Manual" then
+		preNode.Parent = game.Workspace
+		if math.floor(origin.X + Mouse.hit.Position.X) % 2 == 0 and math.floor(origin.Z + Mouse.hit.Position.Z) % 2 == 0 then
+			preNode.Position = origin - Vector3.new(math.floor(origin.X - Mouse.hit.Position.X), 0, math.floor(origin.Z - Mouse.hit.Position.Z))
+		end
+	end
+	wait()
+end
+
+
+--This script allows players to create polygons with triangles using Polygon Triangulation 
+--Currently only works in local script
