@@ -1,0 +1,45 @@
+local utilities = {}
+
+-- Returns true if 'array' is empty, else returns false
+utilities.isArrayEmpty = function(array)
+	if next(array) == nil then
+   		return true
+	else 
+		return false
+	end 
+end
+
+-- Returns true if 'value' is an element of 'array', else returns false
+utilities.isInArray = function(array,value)
+	local found = false
+	for _,v in pairs(array) do
+		if v == value then
+			found = true
+			break
+		end
+	end
+	return found
+end
+
+-- Inserts 'value' into 'array' if it doesn't exist in the array already
+utilities.arrayInsertUnique = function(array,value)
+	if utilities.isInArray(array,value) == false then
+		table.insert(array,value)
+	end
+end
+
+-- Samples randomly 'number' of elements of 'array' without replacement
+utilities.arrayRandomElements = function(_array,_number)
+	local number = _number; local array = _array
+	local result = {}
+	for i = 1, number do
+		local randomNum = math.random(1,#array)
+		result[i] = table.remove(array, randomNum)
+	end
+	return(result)
+end
+
+return utilities
+
+
+--This modules deals with arrays 
