@@ -59,7 +59,7 @@ Mouse.TargetFilter = TARGET_FILTER_FOLDER
 local dupe = false
 local vals = {}
 
---Creates the tirangle part with characteristics stated above
+--Creates the triangle part with characteristics stated above
 function spawnTrianglePart(col,mat)
 	local P = Instance.new("WedgePart")
 	P.Anchored = true
