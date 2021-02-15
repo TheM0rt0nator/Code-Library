@@ -1,0 +1,456 @@
+--SERVICES--------------------------------------------------------------
+local players = game:GetService("Players")
+local repStorage = game:GetService("ReplicatedStorage")
+local runService = game:GetService("RunService")
+local userInputService = game:GetService("UserInputService")
+
+------------------------------------------------------------------------
+--MODULES---------------------------------------------------------------
+--I used Quenty's Nevermore Module loader as I find it very useful to just require modules by their name
+local require = require(repStorage.Module_Loader)
+--I have also used Quenty's Maid system as I find it useful to clean up any connections and prevent memory leaks 
+local Maid = require("Maid")
+local geometry = require("Geometry")
+
+------------------------------------------------------------------------
+--GLOBAL VARIABLES------------------------------------------------------
+local player = players.LocalPlayer
+local mouse = player:GetMouse()
+
+local wallBuilder = {}
+wallBuilder.__index = wallBuilder
+
+------------------------------------------------------------------------
+
+--Create the wall builder object, containing all the variables I will need to access throughout the system
+function wallBuilder.init(plot)
+	local self = setmetatable({}, wallBuilder)
+	
+	self._isActive = false
+	self._isDrawing = false
+	self._divideWalls = false
+	self._canDrawWall = true
+	self._currentWalls = {}
+	self._numWalls = 0
+	
+	self._wallHeight = 8
+	self._wallThickness = .5
+	self._wallMarkerIncrementSize = 4
+	
+	self._defaultMarkerColour = Color3.fromRGB(163, 162, 165)
+	self._defaultMarkerMaterial = Enum.Material.SmoothPlastic
+	self._destroyMarkerColour = Color3.fromRGB(255, 0, 0)
+	self._destroyMarkerMaterial = Enum.Material.Neon
+	
+	self._cancelButton = Enum.KeyCode.C
+	self._activateDestroyButton = Enum.KeyCode.LeftControl
+	
+	self._plotPart = plot
+	self._plotAngle = CFrame.Angles(0, math.rad(plot.Orientation.Y), 0)
+	self._plotOrigin = (plot.CFrame*CFrame.new(plot.Size.X/2, 0, -plot.Size.Z/2)).Position
+	self._plotXLowerBound = plot.Position.X - (plot.Size.X/2)
+	self._plotXUpperBound = plot.Position.X + (plot.Size.X/2)
+	self._plotZLowerBound = plot.Position.Z - (plot.Size.Z/2)
+	self._plotZUpperBound = plot.Position.Z + (plot.Size.Z/2)
+	
+	self._currentNumWallsAtEnd = 0
+	
+	self._destroyWallsActive = false
+	
+	self._maid = Maid.new()
+	self._drawWallMaid = Maid.new()
+	return self
+end
+
+--Sets wall builder active to true and gives the maid tasks to detect mouse movement and clicks, as well as hotkeys to activate deletion mode and to cancel the current wall
+function wallBuilder:activateWallMode()
+	mouse.TargetFilter = game.Workspace.Walls
+	
+	self._wallMarker = Instance.new("Part")
+	self._wallMarker.Size = Vector3.new(.4, self._wallHeight*1.3, .4)
+	self._wallMarker.Anchored = true
+	self._wallMarker.CanCollide = false
+	self._wallMarker.Material = self._defaultMarkerMaterial
+	self._wallMarker.Transparency = 0.5
+	self._wallMarker.Name = "WallMarker"
+	self._wallMarker.Parent = game.Workspace.Walls
+	
+	self._maid:GiveTask(runService.Stepped:Connect(function()
+		self:detectMousePosition()
+	end))
+	self._maid:GiveTask(userInputService.InputBegan:Connect(function(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			self:drawWall()
+		end
+	end))
+	self._maid:GiveTask(userInputService.InputEnded:Connect(function(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			self:finishWall()
+		end
+	end))
+	self._maid:GiveTask(userInputService.InputBegan:Connect(function(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == self._activateDestroyButton and not self._isDrawing then
+			self._wallMarker.Color = self._destroyMarkerColour
+			self._wallMarker.Material = self._destroyMarkerMaterial
+			self._destroyWallsActive = true
+		end
+	end))
+	self._maid:GiveTask(userInputService.InputEnded:Connect(function(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == self._activateDestroyButton then
+			if not self._isDrawing then
+				self._wallMarker.Color = self._defaultMarkerColour
+				self._wallMarker.Material = self._defaultMarkerMaterial
+			end
+			self._destroyWallsActive = false
+		end
+	end))
+	self._maid:GiveTask(userInputService.InputBegan:Connect(function(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == self._cancelButton then
+			self:cancelWall()
+		end
+	end))
+	--[[self._maid:GiveTask(mouse.Button2Down:Connect(function()
+		self:cancelWall()
+	end))]]
+	self._maid:GiveTask(self._wallMarker)
+	self._isActive = true
+end
+
+--Sets wall builder active to false, gets the maid to disconnect all functions and deletes all undrawn walls
+function wallBuilder:deactivateWallMode()
+	self._maid:DoCleaning()
+	mouse.TargetFilter = nil
+	self._isActive = false
+	game.Workspace.Walls.PreBuiltWalls:ClearAllChildren()
+end
+
+--Check to see if the wall builder is active
+function wallBuilder:IsActive()
+	return self._isActive
+end
+
+--Checks the mouse position and sets the wall marker position depending on this (snaps to increments defined in initiate function)
+function wallBuilder:setMarkerPos(pos)
+	local fromOrigin = pos-self._plotOrigin
+	local numIncrements = Vector3.new(fromOrigin.X/self._wallMarkerIncrementSize, fromOrigin.Y, fromOrigin.Z/self._wallMarkerIncrementSize)
+	local markerXPos = self._wallMarkerIncrementSize*math.round(numIncrements.X)
+	local markerZPos = self._wallMarkerIncrementSize*math.round(numIncrements.Z)
+	local markerPos = Vector3.new(self._plotOrigin.X+markerXPos, self._plotOrigin.Y+(self._wallMarker.Size.Y/2), self._plotOrigin.Z+markerZPos)
+	if self._wallMarker.Position ~= markerPos then
+		self._wallMarker.Position = markerPos
+	end
+end
+
+--Gets the mouses current position in the 3D world and sets the wall marker position depending on this
+function wallBuilder:detectMousePosition()
+	local mouseTarget = mouse.Target
+	if mouseTarget and mouseTarget.Name == "Plot" then
+		local mousePos = mouse.Hit.Position
+		self:setMarkerPos(mousePos)
+	elseif mouseTarget then
+		self:setMarkerPos(Vector3.new(math.clamp(mouse.Hit.Position.X, self._plotXLowerBound, self._plotXUpperBound), self._plotPart.Position.Y+(self._plotPart.Size.Y/2), math.clamp(mouse.Hit.Position.Z, self._plotZLowerBound, self._plotZUpperBound)))
+	end
+end
+
+--Creates new part to draw the wall with, and sets properties like colour depending on whether delete wall mode is on or not
+function wallBuilder:createWallParts()
+	self._currentWallPart = Instance.new("Part")
+	self._currentWallPart.Size = Vector3.new(self._wallThickness, self._wallHeight, self._wallThickness)
+	
+	if self._destroyWallsActive then
+		self._currentDrawIsDestroy = true
+		self._currentWallPart.Color = self._destroyMarkerColour
+		self._currentWallPart.Size = Vector3.new(self._wallThickness, self._wallHeight, self._wallThickness)
+		self._currentWallPart.Transparency = 0.3
+		self._currentWallPart.Material = Enum.Material.SmoothPlastic
+	else
+		self._currentDrawIsDestroy = false
+		self._currentWallPart.Transparency = 0.5
+		self._currentWallPart.Material = Enum.Material.SmoothPlastic
+	end
+	self._currentWallPart.Anchored = true
+	self._currentWallPart.CanCollide = true
+	self._currentWallPart.Name = "Wall"
+end
+
+--Using pythagoras, calculates the walls length from the start and end points of the mouse movement, and sets the wallParts size and orentation based on this
+function wallBuilder:calculateWallDimensions(p1, p2, wallPart, check)
+	local centreXPos = (p1.X+p2.X)/2
+	local centreZPos = (p1.Z+p2.Z)/2
+	wallPart.Position = Vector3.new(centreXPos, p2.Y, centreZPos)
+	self._currentSideASize = p1.X-p2.X
+	self._currentSideBSize = p1.Z-p2.Z
+	local hypSize = math.sqrt(math.pow(self._currentSideASize, 2)+math.pow(self._currentSideBSize, 2))
+	if self._currentDrawIsDestroy and check then
+		wallPart.Size = Vector3.new(hypSize+0.05, self._wallHeight+0.05, self._wallThickness+0.05)
+	else
+		wallPart.Size = Vector3.new(hypSize, self._wallHeight, self._wallThickness)
+	end
+	local wallAngle1 = math.asin(self._currentSideBSize/hypSize)
+	local wallAngle2 = 90-wallAngle1
+	if p1.X <= p2.X then
+		wallPart.Orientation = Vector3.new(0, math.deg(wallAngle1), 0)
+	else
+		wallPart.Orientation = Vector3.new(0, math.deg(-wallAngle1), 0)
+	end
+end
+
+--Draws the wall evertime the mouse position is changed
+function wallBuilder:drawWall()
+	self._isDrawing = true
+	self:createWallParts()
+	if self._wallMarker then
+		self._mouseStartPos = Vector3.new(self._wallMarker.Position.X, self._plotOrigin.Y+(self._wallHeight/2), self._wallMarker.Position.Z)
+		local canDraw
+		--Function to check if the wall can be drawn - it can't be drawn if intersecting with any other walls 
+		local function checkIfCanDraw(wallInfo, thisWallInfo)
+			local intersectInfo = thisWallInfo.WallsIntersectInfo
+			if intersectInfo.IntersectionType == 1 then
+				if intersectInfo.p1L2L1 or intersectInfo.p2L2L1 then
+					canDraw = false
+					self._canDrawWall = false
+				end
+			elseif intersectInfo.IntersectionType == 2 then
+				local vec2ThisWallP1 = Vector2.new(thisWallInfo.p1.X, thisWallInfo.p1.Z)
+				local vec2ThisWallP2 = Vector2.new(thisWallInfo.p2.X, thisWallInfo.p2.Z)
+				local vec2NewWallP1 = Vector2.new(wallInfo.p1.X, wallInfo.p1.Z)
+				local vec2NewWallP2 = Vector2.new(wallInfo.p2.X, wallInfo.p2.Z)
+				if (vec2ThisWallP1 ~= vec2NewWallP1 and vec2ThisWallP1 ~= vec2NewWallP2 and vec2ThisWallP2 ~= vec2NewWallP1 and vec2ThisWallP2 ~= vec2NewWallP2) then
+					canDraw = false
+					self._canDrawWall = false
+				end
+			elseif intersectInfo.IntersectionType == 0 or intersectInfo.IntersectionType > 2 then
+				canDraw = false
+				self._canDrawWall = false
+			end
+		end
+		
+		--Function to calculate and sets the walls dimensions and get intersecting walls
+		local function wallDrawer()
+			self:calculateWallDimensions(self._wallMarker.Position, self._mouseStartPos, self._currentWallPart, true)
+			local mouseStartVector2 = Vector2.new(self._mouseStartPos.X, self._mouseStartPos.Z)
+			local wallMarkerVector2 = Vector2.new(self._wallMarker.Position.X, self._wallMarker.Position.Z)
+			if mouseStartVector2 ~= wallMarkerVector2 then
+				local pos1 = CFrame.new(self._plotOrigin):toObjectSpace(CFrame.new(self._mouseStartPos)).Position
+				local pos2 = CFrame.new(self._plotOrigin):toObjectSpace(CFrame.new(self._wallMarker.Position)).Position
+				local xCoord = pos1.X
+				local zCoord = pos1.Z
+				local x2Coord = pos2.X
+				local z2Coord = pos2.Z
+				local wallInfo = self:calculateWallInfo(pos1, pos2, xCoord, x2Coord, zCoord, z2Coord)
+				self:getIntersectingWalls(wallInfo)
+				
+				local numIntersectingWalls = 0
+				canDraw = true
+				for wallName, thisWallInfo in pairs(self._currentIntersectingWallsInfo["Normal"]) do
+					local intersectInfo = thisWallInfo.WallsIntersectInfo
+					checkIfCanDraw(wallInfo, thisWallInfo)
+					numIntersectingWalls += 1
+				end
+				for wallName, thisWallInfo in pairs(self._currentIntersectingWallsInfo["Parallel"]) do
+					checkIfCanDraw(wallInfo, thisWallInfo)
+					numIntersectingWalls += 1
+				end
+				if numIntersectingWalls == 0 then
+					canDraw = true
+				end
+				if not canDraw then
+					self._currentWallPart.Color = Color3.fromRGB(255, 0, 0)
+				else
+					self._currentWallPart.Color = Color3.fromRGB(163, 162, 165)
+				end
+			end
+		end
+		self._drawWallMaid:GiveTask(self._wallMarker:GetPropertyChangedSignal("Position"):Connect(wallDrawer))
+	end
+	self._currentWallPart.Parent = game.Workspace.Walls.PreBuiltWalls
+end
+
+--Cancels the current wall being drawn and disconnects all relevant functions
+function wallBuilder:cancelWall()
+	self._isDrawing = false
+	if self._currentWallPart then
+		self._drawWallMaid:DoCleaning()
+		self._currentWallPart:Destroy()
+		self._currentWallPart = nil
+	end
+	if not userInputService:IsKeyDown(self._activateDestroyButton) and self._wallMarker then
+		self._wallMarker.Color = self._defaultMarkerColour
+		self._wallMarker.Material = self._defaultMarkerMaterial
+	end
+end
+
+--Gets all intersecting walls with the wall info given in argument (this simply uses algebra to get the two walls equations and check if they intersect or not)
+function wallBuilder:getIntersectingWalls(newWallInfo)
+	self._currentIntersectingWallsInfo = {
+		KeepDrawnWall = true;
+		["Parallel"] = {};
+		["Normal"] = {};
+	}
+	--Loop through all current walls (walls which have already been drawn)
+	for index, wallInfo in pairs(self._currentWalls) do
+		local wall1Info = {p1 = Vector2.new(newWallInfo.x1, newWallInfo.z1), p2 = Vector2.new(newWallInfo.x2, newWallInfo.z2), Gradient = newWallInfo.m, Intercept = newWallInfo.c, Wall = newWallInfo.Wall}
+		local wall2Info = {p1 = Vector2.new(wallInfo.x1, wallInfo.z1), p2 = Vector2.new(wallInfo.x2, wallInfo.z2), Gradient = wallInfo.m, Intercept = wallInfo.c, Wall = wallInfo.Wall}
+		
+		local m1 = newWallInfo.m
+		local m2 = wallInfo.m
+		
+		local wallsIntersectInfo = geometry.lineSegmentsIntersect(wall1Info, wall2Info)
+		wallInfo.WallsIntersectInfo = wallsIntersectInfo
+		if wallsIntersectInfo.Check then
+			local c1 = newWallInfo.c
+			local c2 = wallInfo.c
+			local xCoord = (c2-c1)/(m1-m2)
+			local zCoord = wallInfo.m*xCoord + wallInfo.c
+
+			if m1 == m2 then
+				if m1 == 0 then
+					if newWallInfo.constAxis and wallInfo.constAxis and newWallInfo.constAxis == wallInfo.constAxis then
+						self._currentIntersectingWallsInfo["Parallel"][index] = wallInfo
+					else
+						if not self._currentDrawIsDestroy then
+							self._currentIntersectingWallsInfo["Normal"][index] = wallInfo
+						end
+					end
+				else
+					self._currentIntersectingWallsInfo["Parallel"][index] = wallInfo
+				end
+			else
+				if not self._currentDrawIsDestroy then
+					self._currentIntersectingWallsInfo["Normal"][index] = wallInfo
+				end
+			end
+		end
+	end
+end
+
+--Once wall drawing is complete, this function is called to separate the one wall part into two separate parts, to allow for different colour wall sides in the future
+function wallBuilder:makeWallSides(pos1, pos2, xCoord, x2Coord, zCoord, z2Coord, wallGradient, wallZIntercept, constAxis, wallHolder, wallPart, wallInfo)
+	wallPart.Size = Vector3.new(wallPart.Size.X, wallPart.Size.Y, wallPart.Size.Z/2)
+	
+	local side1 = Instance.new("Model")
+	local side2 = Instance.new("Model")
+	side1.Name = "Side1"
+	side2.Name = "Side2"
+	
+	side1.Parent = wallHolder
+	side2.Parent = wallHolder
+	
+	local otherWallPart = wallPart:Clone()
+	wallPart.CFrame *= CFrame.new(0, 0, self._wallThickness/4)
+	otherWallPart.CFrame *= CFrame.new(0, 0, -self._wallThickness/4)
+	wallPart.Name = "1"
+	otherWallPart.Name = "1"
+	wallPart.Parent = side1
+	otherWallPart.Parent = side2
+	
+	wallInfo.side1Pos = wallPart.CFrame.Position
+	wallInfo.side2Pos = otherWallPart.CFrame.Position
+	
+	local wallNum
+	for i = 1, self._numWalls do
+		if not self._currentWalls["Wall" .. i] then
+			wallNum = i
+		end
+	end
+	self._numWalls += 1
+	
+	if not wallNum then
+		wallNum = self._numWalls
+	end
+	wallHolder.Name = "Wall" .. wallNum
+	self._currentWalls[wallHolder.Name] = wallInfo
+	for _,wallSide in pairs(wallHolder:GetChildren()) do
+		for _,wall in pairs(wallSide:GetChildren()) do
+			wall.Transparency = 0
+		end
+	end
+	wallHolder.Parent = game.Workspace.Walls.BuiltWalls
+end
+
+--Function to get the gradient and y intercept of the wall and return this and all important information in a table
+function wallBuilder:calculateWallInfo(pos1, pos2, x1, x2, z1, z2)
+	local wallGradient 
+	local constAxis 
+	if x2-x1 ~= 0 then
+		wallGradient = ((z2-z1)/(x2-x1))
+	else
+		wallGradient = 0
+	end
+	if wallGradient == 0 then
+		if x1 ~= x2 then
+			constAxis = "Z"
+		else
+			constAxis = "X"
+		end
+	end
+	local wallZIntercept = z1 - (wallGradient*x1)
+	
+	local wallHolder = Instance.new("Model")
+	local wallInfo = {Wall = wallHolder, m = wallGradient, c = wallZIntercept, p1 = pos1, p2 = pos2, x1 = x1, z1 = z1, x2 = x2, z2 = z2}
+	wallInfo.Segments = {
+		Side1 = {
+			["1"] = {p1 = Vector2.new(pos1.X, pos1.Z), p2 = Vector2.new(pos2.X, pos2.Z)};
+		};
+		Side2 = {
+			["1"] = {p1 = Vector2.new(pos1.X, pos1.Z), p2 = Vector2.new(pos2.X, pos2.Z)};
+		};
+	}
+	if constAxis then
+		wallInfo.constAxis = constAxis
+	end
+	return wallInfo
+end
+
+--Function called when player releases mouse to finish creating the wall by calling functions above, adding the new wall to the current walls table and then resetting relevant values
+function wallBuilder:finishWall()
+	if self._currentWallPart and self._wallMarker and self._mouseStartPos then
+		local mouseStartVector2 = Vector2.new(self._mouseStartPos.X, self._mouseStartPos.Z)
+		local wallMarkerVector2 = Vector2.new(self._wallMarker.Position.X, self._wallMarker.Position.Z)
+		if mouseStartVector2 ~= wallMarkerVector2 then
+			local pos1 = CFrame.new(self._plotOrigin):toObjectSpace(CFrame.new(self._mouseStartPos)).Position
+			local pos2 = CFrame.new(self._plotOrigin):toObjectSpace(CFrame.new(self._wallMarker.Position)).Position
+			local xCoord = pos1.X
+			local zCoord = pos1.Z
+			local x2Coord = pos2.X
+			local z2Coord = pos2.Z
+			self._drawWallMaid:DoCleaning()
+			
+			local wallInfo = self:calculateWallInfo(pos1, pos2, xCoord, x2Coord, zCoord, z2Coord)
+			
+			self:getIntersectingWalls(wallInfo)
+			
+			local wall1Info = {p1 = Vector2.new(wallInfo.x1, wallInfo.z1), p2 = Vector2.new(wallInfo.x2, wallInfo.z2), Gradient = wallInfo.m, c = wallInfo.c, Segments = wallInfo.Segments, Wall = wallInfo.Wall}
+			
+			if not self._currentDrawIsDestroy and self._currentIntersectingWallsInfo.KeepDrawnWall and self._canDrawWall then
+				self:makeWallSides(pos1, pos2, xCoord, x2Coord, zCoord, z2Coord, wallInfo.m, wallInfo.c, wallInfo.constAxis, wallInfo.Wall, self._currentWallPart, wallInfo)
+			else
+				self._currentWallPart:Destroy()
+				wallInfo.Wall:Destroy()
+			end
+			
+			local numNormalIntersects = 0
+			for _, thisWallInfo in pairs(self._currentIntersectingWallsInfo["Normal"]) do
+				numNormalIntersects += 1
+			end
+			local numWallsTable = 0
+			for _,_ in pairs(self._currentWalls) do
+				numWallsTable += 1
+			end
+			self._currentWallPart = nil
+			self._mouseStartPos = nil
+			self._firstMidWallIntersect = nil
+			self._secondMidWallIntersect = nil
+			self._isDrawing = false
+			self._canDrawWall = true
+			if not userInputService:IsKeyDown(self._activateDestroyButton) and self._wallMarker then
+				self._wallMarker.Color = self._defaultMarkerColour
+				self._wallMarker.Material = self._defaultMarkerMaterial
+			end
+		elseif mouseStartVector2 == wallMarkerVector2 then
+			self:cancelWall()
+		end
+	end
+end
+
+return wallBuilder
