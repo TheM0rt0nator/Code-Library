@@ -1,0 +1,258 @@
+--SERVICES--------------------------------------------------------------
+local players = game:GetService("Players")
+local repStorage = game:GetService("ReplicatedStorage")
+local runService = game:GetService("RunService")
+local contextActionService = game:GetService("ContextActionService")
+local userInputService = game:GetService("UserInputService")
+------------------------------------------------------------------------
+--MODULES---------------------------------------------------------------
+local require = require(repStorage.Module_Loader)
+local Maid = require("Maid")
+local tween = require("Tween")
+local geometry = require("Geometry")
+
+------------------------------------------------------------------------
+--GLOBAL VARIABLES------------------------------------------------------
+local player = players.LocalPlayer
+local camera = game.Workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+local cameraControl = {}
+cameraControl.__index = cameraControl
+
+------------------------------------------------------------------------
+
+--Function to create the camera control object for each player - contains all the properties needed for the camera control on the plot
+function cameraControl.init(plot)
+	local self = setmetatable({}, cameraControl)
+
+	self._plotPart = plot
+	self._plotAngle = CFrame.Angles(0, math.rad(plot.Orientation.Y), 0)
+
+	self._plotLowerLeftCorner = plot.CFrame*CFrame.new(-plot.Size.X/2, 0, -plot.Size.Z/2)
+	self._plotLowerRightCorner = plot.CFrame*CFrame.new(-plot.Size.X/2, 0, -plot.Size.Z/2)
+	self._plotUpperLeftCorner = plot.CFrame*CFrame.new(-plot.Size.X/2, 0, -plot.Size.Z/2)
+	self._plotUpperLeftCorner = plot.CFrame*CFrame.new(-plot.Size.X/2, 0, -plot.Size.Z/2)
+
+	self._plotXLowerBound = plot.Position.X-plot.Size.X/2
+	self._plotXUpperBound = plot.Position.X+plot.Size.X/2
+	self._plotZLowerBound = plot.Position.Z-plot.Size.Z/2
+	self._plotZUpperBound = plot.Position.Z+plot.Size.Z/2
+	local startPos = Vector3.new(plot.Position.X, plot.Position.Y+(plot.Size.Y/2), plot.Position.Z-(plot.Size.Z/2))
+	self._startPos = geometry.rotateVector3AroundPivot(startPos, plot.Position, self._plotAngle)
+	self._cameraStartOffset = 25
+	self._currentCamOffset = 25
+	self._camMoveSpeed = 1/2
+	self._camRotateSpeed = 1/2
+	self._maxCamZoom = 80
+	self._minCamZoom = 5
+	self._zoomFactor = 2
+	self._camRotationIncrements = 1
+
+	self._xMotion = 0
+	self._zMotion = 0
+	self._currentCamRotation = 0
+
+	self._maid = Maid.new()
+	self._eRotateEventMaid = Maid.new()
+	self._qRotateEventMaid = Maid.new()
+	self._clickRotateEventMaid = Maid.new()
+
+	return self
+end
+
+--Detects user input to move/rotate camera 
+function cameraControl:detectUserInput()
+	local function onKeyPressed(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			if input.KeyCode == Enum.KeyCode.W then
+				self._zMotion = 1
+			elseif input.KeyCode == Enum.KeyCode.A then
+				self._xMotion = -1
+			elseif input.KeyCode == Enum.KeyCode.S then
+				self._zMotion = -1
+			elseif input.KeyCode == Enum.KeyCode.D then
+				self._xMotion = 1
+			elseif input.KeyCode == Enum.KeyCode.Q then
+				self._eRotateEventMaid:DoCleaning()
+				self._qRotateEventMaid:GiveTask(runService.RenderStepped:Connect(function()
+					self._currentCamRotation -= self._camRotationIncrements
+					self:rotateCamera()
+				end))
+			elseif input.KeyCode == Enum.KeyCode.E then
+				self._qRotateEventMaid:DoCleaning()
+				self._eRotateEventMaid:GiveTask(runService.RenderStepped:Connect(function()
+					self._currentCamRotation += self._camRotationIncrements
+					self:rotateCamera()
+				end))
+			end
+		end
+	end
+	local function onKeyReleased(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			if input.KeyCode == Enum.KeyCode.W and self._zMotion ~= -1 then
+				self._zMotion = 0
+			elseif input.KeyCode == Enum.KeyCode.A and self._xMotion ~= 1 then
+				self._xMotion = 0
+			elseif input.KeyCode == Enum.KeyCode.S and self._zMotion ~= 1 then
+				self._zMotion = 0
+			elseif input.KeyCode == Enum.KeyCode.D and self._xMotion ~= -1 then
+				self._xMotion = 0
+			elseif input.KeyCode == Enum.KeyCode.Q then
+				self._qRotateEventMaid:DoCleaning()
+			elseif input.KeyCode == Enum.KeyCode.E then
+				self._eRotateEventMaid:DoCleaning()
+			end
+		end
+	end
+
+	local function rightClickDown()
+		userInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+		self._clickRotateEventMaid:GiveTask(mouse.Move:Connect(function()
+			local mouseDelta = userInputService:GetMouseDelta()
+			local factor = mouseDelta/camera.ViewportSize
+			if factor.X > 0 then
+				self._currentCamRotation += self._camRotationIncrements*1.5
+			elseif factor.X < 0 then
+				self._currentCamRotation -= self._camRotationIncrements*1.5
+			end
+			self:rotateCamera()
+		end))
+	end
+	local function rightClickUp()
+		userInputService.MouseBehavior = Enum.MouseBehavior.Default
+		self._clickRotateEventMaid:DoCleaning()
+	end
+	self._maid:GiveTask(userInputService.InputBegan:Connect(onKeyPressed))
+	self._maid:GiveTask(userInputService.InputEnded:Connect(onKeyReleased))
+	self._maid:GiveTask(mouse.Button2Down:Connect(rightClickDown))
+	self._maid:GiveTask(mouse.Button2Up:Connect(rightClickUp))
+end
+
+--Rotates the camera while the rotating keys are held down
+function cameraControl:rotateCamera()
+	local rotateAngle = CFrame.Angles(0, math.rad(self._currentCamRotation), 0)
+	local rotatedCFrame = CFrame.new(self._startPos) * rotateAngle * self._plotAngle
+	camera.CFrame = rotatedCFrame:ToWorldSpace(CFrame.new(0, self._currentCamOffset, -self._currentCamOffset))
+	camera.CFrame = CFrame.new(camera.CFrame.Position, self._startPos)
+end
+
+--Moves the camera in the correct direction while the moving keys are held down
+function cameraControl:moveCamera()
+	local rightVector = Vector3.new(camera.CFrame.RightVector.X*self._xMotion, 0, camera.CFrame.RightVector.Z*self._xMotion)
+	local forwardVector = Vector3.new(camera.CFrame.LookVector.X*self._zMotion, 0, camera.CFrame.LookVector.Z*self._zMotion)
+	local totalVector = rightVector+forwardVector
+	local newStartPos = self._startPos+(totalVector*self._camMoveSpeed)
+	local xCheck = newStartPos.X >= self._plotXLowerBound and newStartPos.X <= self._plotXUpperBound
+	local zCheck = newStartPos.Z >= self._plotZLowerBound and newStartPos.Z <= self._plotZUpperBound
+	local xComponent = totalVector.X
+	local zComponent = totalVector.Z
+	if not xCheck and zCheck then
+		xComponent = 0
+	elseif not zCheck and xCheck then
+		zComponent = 0
+	elseif not xCheck and not zCheck then
+		xComponent = 0
+		zComponent = 0
+	end
+
+	totalVector = Vector3.new(xComponent, 0, zComponent)
+	self._startPos = self._startPos+(totalVector*self._camMoveSpeed)
+	camera.CFrame = CFrame.new(camera.CFrame.X, camera.CFrame.Y, camera.CFrame.Z):ToWorldSpace(CFrame.new(totalVector*self._camMoveSpeed))
+	camera.CFrame = CFrame.new(camera.CFrame.Position, self._startPos)
+end
+
+--Zooms the camera in/out when the scroll wheel is moved by changing the CFrame
+function cameraControl:zoomCamera()
+	local function setCameraZoom()
+		local camPos = self._startPos+Vector3.new(-self._currentCamOffset*camera.CFrame.RightVector.Z, self._currentCamOffset, self._currentCamOffset*camera.CFrame.RightVector.X)
+		camera.CFrame = CFrame.new(camPos, self._startPos)
+	end
+	local function zoomOut()
+		local newCameraOffset = self._currentCamOffset + self._zoomFactor
+		if newCameraOffset <= self._maxCamZoom then
+			self._currentCamOffset += self._zoomFactor
+			setCameraZoom()
+		end
+	end
+	local function zoomIn()
+		local newCameraOffset = self._currentCamOffset - self._zoomFactor
+		if newCameraOffset >= self._minCamZoom then
+			self._currentCamOffset -= self._zoomFactor
+			setCameraZoom()
+		end
+	end
+	self._maid:GiveTask(mouse.WheelForward:Connect(zoomIn))
+	self._maid:GiveTask(mouse.WheelBackward:Connect(zoomOut))
+end
+
+--Activates the build mode camera, tweening the camera to the specified CFrame
+function cameraControl:Activate()
+	camera.CameraType = Enum.CameraType.Scriptable
+	local cameraStartPos = Vector3.new(self._startPos.X, self._startPos.Y+self._cameraStartOffset, self._startPos.Z-self._cameraStartOffset)
+	cameraStartPos = geometry.rotateVector3AroundPivot(cameraStartPos, self._startPos, self._plotAngle)
+	local newCamCFrame = CFrame.new(cameraStartPos, self._startPos)
+
+	self._prevCamCFrame = camera.CFrame
+	self._prevCamDist = self._prevCamCFrame.p - player.Character.Head.Position
+
+	local camTweenInfo = {
+		tweenItem = camera;
+		tweenTypes = {
+			CFrame = newCamCFrame;
+		};
+		easingStyle = Enum.EasingStyle.Quart;
+		easingDir = Enum.EasingDirection.Out;
+		compFunc = function()
+			self._maid:GiveTask(runService.RenderStepped:Connect(function()
+				self:moveCamera()
+			end))
+			self:detectUserInput()
+			self:zoomCamera()
+		end
+	}
+	local thisTween = tween.new(camTweenInfo)
+	thisTween.Completed:Wait()
+	self._maid:GiveTask(userInputService.InputBegan:Connect(function(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.LeftShift then
+			self._camMoveSpeed = 1/6
+			self._camRotationIncrements = 1/3
+		end
+	end))
+	self._maid:GiveTask(userInputService.InputEnded:Connect(function(input, gameProcessed)
+		if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.LeftShift then
+			self._camMoveSpeed = 1/2
+			self._camRotationIncrements = 1
+		end
+	end))
+end
+
+--Deactivates the build mode camera, resets all values and tween the camera back to the player
+function cameraControl:Deactivate()
+	self._maid:DoCleaning()
+	self._xMotion = 0
+	self._zMotion = 0
+	self._currentCamRotation = 0
+	self._currentCamOffset = self._cameraStartOffset
+	local startPos = Vector3.new(self._plotPart.Position.X, self._plotPart.Position.Y+(self._plotPart.Size.Y/2), self._plotPart.Position.Z-(self._plotPart.Size.Z/2))
+	self._startPos = geometry.rotateVector3AroundPivot(startPos, self._plotPart.Position, self._plotAngle)
+
+	local newPos = player.Character.Head.Position + self._prevCamDist
+	local cameraCFrame = CFrame.new(newPos, newPos + self._prevCamCFrame.LookVector)
+
+	local camTweenInfo = {
+		tweenItem = camera;
+		tweenTypes = {
+			CFrame = cameraCFrame;
+		};
+		easingStyle = Enum.EasingStyle.Linear;
+		easingDir = Enum.EasingDirection.Out;
+		compFunc = function()
+			camera.CameraType = Enum.CameraType.Custom
+		end
+	}
+	local thisTween = tween.new(camTweenInfo)
+	thisTween.Completed:Wait()
+end
+
+return cameraControl
