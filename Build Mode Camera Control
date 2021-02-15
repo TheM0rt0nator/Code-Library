@@ -4,9 +4,12 @@ local repStorage = game:GetService("ReplicatedStorage")
 local runService = game:GetService("RunService")
 local contextActionService = game:GetService("ContextActionService")
 local userInputService = game:GetService("UserInputService")
+
 ------------------------------------------------------------------------
 --MODULES---------------------------------------------------------------
+--I used Quenty's Nevermore Module loader as I find it very useful to just require modules by their name
 local require = require(repStorage.Module_Loader)
+--I have also used Quenty's Maid system as I find it useful to clean up any connections and prevent memory leaks 
 local Maid = require("Maid")
 local tween = require("Tween")
 local geometry = require("Geometry")
